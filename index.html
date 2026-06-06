@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>A股涨停板预测器</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace">
+        <header class="topbar">
+        <nav class="tab-nav">
+          <button class="tab-btn active" data-tab="predict">涨停预测</button>
+          <button class="tab-btn" data-tab="trades">交易记录</button>
+        </nav>
+
+          <div>
+            <p class="eyebrow">A-Share Limit-Up Model</p>
+            <h1>A股次日涨停预测器</h1>
+          </div>
+          <div class="market-badge">
+            <span id="marketRegimeLabel">情绪：中性</span>
+            <strong id="watchlistCount">0</strong>
+            <label class="auto-toggle">
+              <input id="autoRefresh" type="checkbox" checked />
+              <span>自动刷新</span>
+            </label>
+          </div>
+        </header>
+        <div class="tab-panel active" id="tabPredict">
+
+
+        <section class="control-strip" aria-label="市场环境设置">
+          <label>
+            市场情绪
+            <select id="marketMood">
+              <option value="cold">低迷</option>
+              <option value="neutral" selected>中性</option>
+              <option value="hot">活跃</option>
+            </select>
+          </label>
+          <label>
+            热门题材强度
+            <input id="themeHeat" type="range" min="0" max="100" value="62" />
+            <span id="themeHeatValue">62</span>
+          </label>
+          <label>
+            风险偏好
+            <input id="riskAppetite" type="range" min="0" max="100" value="55" />
+            <span id="riskAppetiteValue">55</span>
+          </label>
+          <div class="board-filters">
+            <span>板块筛选</span>
+            <label><input type="checkbox" class="board-filter" data-board="main" checked /> 主板</label>
+            <label><input type="checkbox" class="board-filter" data-board="chinext" checked /> 创业板</label>
+            <label><input type="checkbox" class="board-filter" data-board="star" checked /> 科创板</label>
+            <label><input type="checkbox" class="board-filter" data-board="bse" checked /> 北交所</label>
+          </div>
+          <div class="actions">
+            <button id="addStockBtn" type="button">添加候选</button>
+            <button id="refreshMarketBtn" type="button">手动刷新</button>
+            <button id="loadDemoBtn" type="button">载入兜底</button>
+          </div>
+        </section>
+
+        <section class="grid-layout">
+          <aside class="editor-panel" aria-label="候选股输入">
+            <div class="section-heading">
+              <h2>候选池</h2>
+              <span>手工录入或粘贴复盘数据</span>
+            </div>
+
+            <form id="stockForm">
+              <label>
+                股票代码
+                <input id="code" required placeholder="例如 300750" maxlength="6" />
+              </label>
+              <label>
+                股票名称
+                <input id="name" required placeholder="例如 宁德时代" />
+              </label>
+              <label>
+                所属板块
+                <select id="board">
+                  <option value="main">沪深主板</option>
+                  <option value="star">科创板</option>
+                  <option value="chinext">创业板</option>
+                  <option value="bse">北交所</option>
+                </select>
+              </label>
+              <label class="checkbox-row">
+                <input id="isSt" type="checkbox" />
+                ST / *ST
+              </label>
+              <div class="two-col">
+                <label>
+                  昨收
+                  <input id="prevClose" type="number" min="0.01" step="0.01" required value="10.00" />
+                </label>
+                <label>
+                  现价
+                  <input id="lastPrice" type="number" min="0.01" step="0.01" required value="10.58" />
+                </label>
+              </div>
+              <div class="two-col">
+                <label>
+                  量比
+                  <input id="volumeRatio" type="number" min="0" step="0.1" required value="2.4" />
+                </label>
+                <label>
+                  换手率 %
+                  <input id="turnover" type="number" min="0" step="0.1" required value="8.2" />
+                </label>
+              </div>
+              <div class="two-col">
+                <label>
+                  今日涨幅 %
+                  <input id="changePct" type="number" step="0.1" required value="5.8" />
+                </label>
+                <label>
+                  资金强度 %
+                  <input id="capitalInflow" type="number" step="0.1" required value="4.5" />
+                </label>
+              </div>
+              <div class="two-col">
+                <label>
+                  题材热度
+                  <input id="stockThemeHeat" type="number" min="0" max="100" step="1" required value="72" />
+                </label>
+                <label>
+                  连板高度
+                  <input id="limitStreak" type="number" min="0" max="20" step="1" required value="1" />
+                </label>
+              </div>
+              <button type="submit">计算并加入榜单</button>
+            </form>
+
+            <div class="import-box">
+              <label for="csvInput">CSV 快速导入</label>
+              <textarea id="csvInput" rows="5" placeholder="code,name,board,prevClose,lastPrice,volumeRatio,turnover,changePct,capitalInflow,themeHeat,limitStreak"></textarea>
+              <button id="importCsvBtn" type="button">导入 CSV</button>
+            </div>
+          </aside>
+
+          <section class="results-panel" aria-label="预测结果">
+            <div class="section-heading">
+              <h2>次日冲板候选榜</h2>
+              <span id="dataStatus">准备加载行情</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>排名</th>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>板块</th>
+                    <th>涨停价</th>
+                    <th>当前距离</th>
+                    <th>次日分</th>
+                    <th>信号</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="resultsBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="insight-band" aria-label="模型解释">
+          <div>
+            <h2>模型逻辑</h2>
+            <p>
+              评分目标是用今日收盘后的量价结构，寻找下一交易日可能继续被资金攻击并触及涨停的候选。
+              已触板或过度贴近涨停的股票会被过滤，分数是排序信号，不是真实概率。
+            </p>
+          </div>
+          <div class="formula">
+            Score = 历史模型 + 攻击距离 + 量能 + 收盘位置 + 流动性 + 题材/环境
+          </div>
+        </section>
+
+        <section class="validation-panel" aria-label="自动建模">
+          <div class="section-heading">
+            <h2>自动建模</h2>
+            <span>联网抓历史样本，训练并检验数学模型</span>
+          </div>
+          <div class="validation-grid">
+            <div class="validation-copy">
+              <p>
+                系统会自动从涨幅、成交额、量比多路行情中构建未触板候选池，抓取最近约 260 个交易日的日 K 数据，
+                用涨幅、封板距离、量比、日内振幅、收盘位置训练逻辑回归模型，并用留出的时间段做测试。
+              </p>
+              <div class="validation-actions">
+                <button id="trainModelBtn" type="button">自动训练模型</button>
+                <button id="refreshMarketBtn2" type="button">只更新行情</button>
+              </div>
+            </div>
+            <div class="model-note">
+              <strong>训练目标</strong>
+              <p>用第 T 日收盘后的特征，预测第 T+1 个交易日是否触及涨停价。模型分是训练后的排序分，仍不构成投资建议。</p>
+            </div>
+          </div>
+          <div id="modelResults" class="validation-results">
+            <div class="metric-card">
+              <span>建模状态</span>
+              <strong>未训练</strong>
+              <small>点击自动训练模型开始</small>
+            </div>
+          </div>
+        </section>
+
+        <footer>
+          本工具只做本地数据筛选与复盘辅助，不构成投资建议。涨跌幅规则按当前常见交易制度预设：
+          主板 10%，主板 ST 在 2026-07-06 前按 5%、之后按 10%，科创板/创业板 20%，北交所 30%；行情候选来自新浪财经公开接口，接口不可用时自动使用本地行情快照。
+                <section class="tracking-panel" aria-label="预测追踪">
+          <div class="section-heading">
+            <h2>预测追踪</h2>
+            <span>每日模型预测准确率</span>
+          </div>
+          <div id="trackingPanel" class="tracking-grid">
+            <div class="metric-card"><span>追踪状态</span><strong>待加载</strong><small>页面加载后自动更新</small></div>
+          </div>
+        </section>
+        <section class="chain-panel" aria-label="产业链分析">
+          <div class="section-heading">
+            <h2>产业链分析</h2>
+            <span>实时行情分组</span>
+            <button id="loadChainsBtn" type="button">产业链分析</button>
+          </div>
+          <div id="chainsPanel" class="chains-grid">
+            <div class="metric-card"><span>产业链分析</span><strong>就绪</strong><small>点击按钮加载</small></div>
+          </div>
+        </section>
+        <section class="concept-panel" aria-label="题材搜索">
+          <div class="section-heading">
+            <h2>题材搜索</h2>
+            <span>输入题材关键词，从产业链和实时行情中匹配相关标的</span>
+          </div>
+          <div class="concept-search-box">
+            <input id="conceptKeyword" type="text" placeholder="例如：AI基建、固态电池" maxlength="100" />
+            <button id="searchConceptBtn" type="button">搜索</button>
+          </div>
+          <div id="conceptResults" class="concept-results">
+            <div class="metric-card"><span>搜索</span><strong>就绪</strong><small>输入题材关键词点击搜索</small></div>
+          </div>
+        </section>
+      </footer>
+        </div> <!-- /tabPredict -->
+
+        <div class="tab-panel" id="tabTrades">
+          <section class="trades-panel" aria-label="交易记录">
+            <div class="section-heading">
+              <h2>📝 交易流水</h2>
+              <span>记录每一笔买入卖出，复盘决策</span>
+            </div>
+
+            <form id="tradeForm" class="trade-form">
+              <div class="trade-form-grid">
+                <label>
+                  股票代码
+                  <input id="tradeCode" required placeholder="300750" maxlength="6" />
+                </label>
+                <label>
+                  股票名称
+                  <input id="tradeName" required placeholder="宁德时代" />
+                </label>
+                <label>
+                  所属概念/题材
+                  <input id="tradeConcept" placeholder="新能源、AI 基建等" />
+                </label>
+                <label>
+                  板块
+                  <select id="tradeBoard">
+                    <option value="main">沪深主板</option>
+                    <option value="star">科创板</option>
+                    <option value="chinext">创业板</option>
+                    <option value="bse">北交所</option>
+                  </select>
+                </label>
+                <label>
+                  买入日期
+                  <input id="tradeBuyDate" type="date" required />
+                </label>
+                <label>
+                  买入价格
+                  <input id="tradeBuyPrice" type="number" min="0.01" step="0.01" required placeholder="0.00" />
+                </label>
+                <label>
+                  买入数量（股）
+                  <input id="tradeQuantity" type="number" min="100" step="100" required placeholder="100" />
+                </label>
+                <label>
+                  买入理由
+                  <input id="tradeBuyReason" placeholder="追涨停、题材驱动等" />
+                </label>
+                <label>
+                  卖出日期
+                  <input id="tradeCloseDate" type="date" />
+                </label>
+                <label>
+                  卖出价格
+                  <input id="tradeClosePrice" type="number" min="0" step="0.01" placeholder="留空表示持仓中" />
+                </label>
+                <label>
+                  卖出原因
+                  <select id="tradeCloseReason">
+                    <option value="">持仓中</option>
+                    <option value="止损">止损</option>
+                    <option value="止盈">止盈</option>
+                    <option value="题材退潮">题材退潮</option>
+                    <option value="大盘风险">大盘风险</option>
+                    <option value="换股">换股</option>
+                    <option value="其他">其他</option>
+                  </select>
+                </label>
+              </div>
+              <div class="trade-form-actions">
+                <button id="saveTradeBtn" type="submit">保存记录</button>
+                <button id="resetTradeBtn" type="button">清空</button>
+              </div>
+            </form>
+
+            <div class="trades-layout">
+              <div class="trades-list-section">
+                <div class="section-heading-sub">
+                  <h3>交易记录</h3>
+                  <span id="tradeCountLabel">0 笔</span>
+                </div>
+                <div id="tradesList" class="trades-list"></div>
+              </div>
+              <div class="trades-stats-section">
+                <div class="section-heading-sub">
+                  <h3>📊 盈亏看板</h3>
+                  <span>第一性原理：统计是审题，不是交卷</span>
+                </div>
+                <div id="tradesStats" class="trades-stats">
+                  <div class="metric-card"><span>加载中...</span><strong>—</strong><small>请先录入交易</small></div>
+                </div>
+              </div>
+            </div>
+          <section class="reflection-panel" aria-label="预测反思">
+            <div class="section-heading">
+              <h2>🔍 预测反思</h2>
+              <span>昨日预测 TOP10 实际表现 — 每天反思，每天都进步</span>
+            </div>
+            <div id="reflectionContent">
+              <div class="metric-card">
+                <span>预测反思</span><strong>加载中</strong>
+                <small>请先训练模型产生预测</small>
+              </div>
+            <div class="feedback-section">
+              <div class="section-heading-sub" style="margin-top:16px">
+                <h3>🔄 反馈校正（自动控制原理）</h3>
+                <span>用昨日误差修正今日模型权重</span>
+              </div>
+              <div class="feedback-controls">
+                <button id="runFeedbackBtn" type="button">运行反馈校正训练</button>
+                <span id="feedbackStatus" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+              </div>
+              <div id="feedbackResult" class="feedback-result">
+                <div class="metric-card"><span>反馈校正</span><strong>就绪</strong><small>点击按钮查看误差修正效果</small></div>
+              </div>
+            </div>
+
+            </div>
+          </section>
+
+          </section>
+        </div> <!-- /tabTrades -->
+
+      </section>
+    </main>
+
+    <template id="emptyState">
+      <tr>
+        <td colspan="9" class="empty-state">暂无候选股。添加一只股票或载入示例数据开始计算。</td>
+      </tr>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
